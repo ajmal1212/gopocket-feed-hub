@@ -24,11 +24,15 @@ services:
       IDLE_DISCONNECT_MS: ${IDLE_DISCONNECT_MS:-300000}
 
     ports:
-      # Loopback by default: the expectation is a reverse proxy in front,
-      # terminating TLS, because a browser on an https page cannot open a ws://
-      # socket. Set BIND_ADDR=0.0.0.0 to reach the hub directly across the LAN
-      # while testing.
-      - "${BIND_ADDR:-127.0.0.1}:8090:8090"
+      # Published on every interface, so the host firewall is the boundary
+      # rather than a compose default that is easy to forget is there.
+      #
+      # In production the hub belongs behind a TLS-terminating reverse proxy - a
+      # browser on an https page cannot open a ws:// socket - so once that proxy
+      # is in place set BIND_ADDR=127.0.0.1 to stop publishing to the LAN. If the
+      # proxy is itself a container, drop this ports block entirely and let it
+      # reach feed-hub:8090 over the docker network.
+      - "${BIND_ADDR:-0.0.0.0}:8090:8090"
 
     logging:
       driver: json-file
