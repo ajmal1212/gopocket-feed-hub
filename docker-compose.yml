@@ -1,0 +1,35 @@
+services:
+  feed-hub:
+    build: .
+    # Or, once you publish an image, replace `build` with:
+    # image: ghcr.io/<org>/gopocket-feed-hub:latest
+    container_name: feed-hub
+    restart: unless-stopped
+
+    environment:
+      # Upstream feed. One live session per account: whoever connects last
+      # wins, so this account must belong to the hub alone. Point a second
+      # environment at the same account and one of them goes dark.
+      NOREN_WS_URL: ${NOREN_WS_URL:-wss://skypro.skybroking.com/NorenWSWeb/}
+      NOREN_UID: ${NOREN_UID:?set NOREN_UID}
+      FEED_JKEY: ${FEED_JKEY:?set FEED_JKEY}
+
+      # Browsers allowed to open a socket. No wildcards.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://gopocket.in,https://www.gopocket.in,http://localhost:4321}
+
+      HOST: 0.0.0.0
+      PORT: 8090
+      MAX_CONNECTIONS_PER_IP: ${MAX_CONNECTIONS_PER_IP:-8}
+      MAX_TOKENS_PER_CLIENT: ${MAX_TOKENS_PER_CLIENT:-120}
+      IDLE_DISCONNECT_MS: ${IDLE_DISCONNECT_MS:-300000}
+
+    ports:
+      # Bound to loopback: put your existing reverse proxy in front and
+      # terminate TLS there. Change to "8090:8090" only to expose it directly.
+      - "127.0.0.1:8090:8090"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

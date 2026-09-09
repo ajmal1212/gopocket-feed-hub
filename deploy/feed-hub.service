@@ -1,0 +1,27 @@
+[Unit]
+Description=GoPocket market feed hub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=feedhub
+Group=feedhub
+WorkingDirectory=/opt/feed-hub
+ExecStart=/usr/bin/node src/index.mjs
+EnvironmentFile=/etc/feed-hub.env
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=feed-hub
+
+# The hub holds one credential and talks to two hosts; it needs nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/feed-hub
+
+[Install]
+WantedBy=multi-user.target
