@@ -228,8 +228,16 @@ export function createServer({ registry, upstream, ensureQuote, setControlMode }
       return;
     }
 
-    // Behind nginx, the socket address is always the proxy.
-    const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress;
+    // Behind a proxy, the socket address is always the proxy, so the client is
+    // taken from a header. Through the Cloudflare tunnel that is
+    // CF-Connecting-IP: Cloudflare sets it and a client cannot forge it past
+    // Cloudflare, whereas Cloudflare *appends* to X-Forwarded-For, leaving its
+    // first entry as whatever the client sent. X-Forwarded-For stays as the
+    // fallback so the nginx and direct-on-the-LAN setups behave as before.
+    const ip =
+      req.headers["cf-connecting-ip"] ||
+      (req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+      req.socket.remoteAddress;
     if ((connectionsPerIp.get(ip) || 0) >= config.maxConnectionsPerIp) {
       socket.destroy();
       return;
