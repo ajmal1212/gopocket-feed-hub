@@ -1,7 +1,7 @@
 import { createServer as createHttpServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { config } from "./config.mjs";
-import { fetchCandles, isValidInterval, INTERVALS } from "./candles.mjs";
+import { fetchCandles, isValidInterval, INTERVALS, DAILY } from "./candles.mjs";
 
 const PING_MS = 30_000;
 
@@ -67,23 +67,28 @@ export function createServer({ registry, upstream, ensureQuote }) {
     // the newest candle in the browser, so this only has to be roughly current.
     if (url.pathname === "/candles") {
       const key = url.searchParams.get("token") || "";
-      const interval = Number(url.searchParams.get("interval") || 5);
+      const raw = url.searchParams.get("interval") || "5";
+      // Daily is a different upstream keyed by trading symbol, not by token.
+      const interval = raw === DAILY ? DAILY : Number(raw);
+      const symbol = url.searchParams.get("symbol") || "";
       const now = Math.floor(Date.now() / 1000);
       const to = Number(url.searchParams.get("to") || now);
       const from = Number(url.searchParams.get("from") || to - 24 * 60 * 60);
 
       if (!isValidInterval(interval)) {
-        return json(res, 400, { error: "interval must be one of " + INTERVALS.join(",") });
+        return json(res, 400, {
+          error: "interval must be " + DAILY + " or one of " + INTERVALS.join(","),
+        });
       }
       if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) {
         return json(res, 400, { error: "bad from/to" });
       }
 
-      fetchCandles({ key, interval, from, to })
+      fetchCandles({ key, interval, from, to, symbol })
         .then((candles) => {
           res.writeHead(200, {
             "Content-Type": "application/json",
-            "Cache-Control": "public, max-age=30",
+            "Cache-Control": interval === DAILY ? "public, max-age=900" : "public, max-age=30",
           });
           res.end(JSON.stringify({ interval, candles }));
         })

@@ -60,6 +60,14 @@ Two details worth knowing:
   long enough to be cheap, short enough that the forming candle stays current
   while the live feed moves the last price in the browser.
 
+  For daily candles pass `interval=day` **and** `symbol=<trading symbol>`, e.g.
+  `?token=NSE|1333&symbol=HDFCBANK-EQ&interval=day`. That upstream is
+  EODChartData, which is keyed by `EXCHANGE:TRADING_SYMBOL` rather than by
+  token, returns each row as a JSON *string* inside the array, and covers
+  equities only - an index answers with an empty list. A numeric token there
+  also answers empty rather than erroring, which is why the symbol is required
+  rather than optional. Daily responses cache for 15 minutes.
+
   Candles live here rather than in Frappe because TPSeries authenticates with
   the same session key this service already refreshes, and takes the same
   `EXCHANGE|TOKEN` the live feed uses - `NSE|1333` needs no translation. One
