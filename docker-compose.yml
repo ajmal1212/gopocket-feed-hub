@@ -29,6 +29,9 @@ services:
       DASHBOARD_USER: ${DASHBOARD_USER:-}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
 
+      # Where the manual start/kill mode is remembered, on the volume below.
+      STATE_FILE: /var/lib/feed-hub/state.json
+
       HOST: 0.0.0.0
       PORT: 8090
       MAX_CONNECTIONS_PER_IP: ${MAX_CONNECTIONS_PER_IP:-8}
@@ -45,8 +48,17 @@ services:
       # reach feed-hub:8090 over the docker network.
       - "${BIND_ADDR:-0.0.0.0}:8090:8090"
 
+    volumes:
+      # Keeps a manual kill across a restart. Without it a recreated container
+      # comes back on auto and reconnects an account someone took offline on
+      # purpose - the one moment the safeguard has to hold.
+      - feed-hub-state:/var/lib/feed-hub
+
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  feed-hub-state:

@@ -178,6 +178,29 @@ cached for a minute so a reconnect loop cannot turn into a request loop.
 in the environment. `FEED_JKEY` and `NOREN_UID` remain only as a local
 development override; set both and Frappe is bypassed.
 
+## Manual start and kill
+
+The dashboard has three buttons, and the mode they set outranks everything else:
+
+| Mode | Behaviour |
+| --- | --- |
+| `auto` | the daily window decides (the normal state) |
+| `on` | hold the session open regardless of the window |
+| `off` | stay off the account entirely |
+
+`off` is a safeguard, so nothing may quietly undo it - not the schedule, not the
+reconnect loop, and **not a visitor subscribing to a price on the website**. A
+kill switch that traffic can override is not a kill switch. Verified: with the
+feed killed, a client subscribing to two fresh tokens leaves `tokensWatched` at
+3 and `upstream` at `false`.
+
+The mode is written to `STATE_FILE` and restored at boot, because a restart must
+not silently reconnect an account someone deliberately took offline. The compose
+file mounts a volume for it; without one, a recreated container comes back on
+`auto`.
+
+`POST /control {"mode":"off"}` does the same thing behind the dashboard login.
+
 ## Connection window
 
 The hub holds its session between `CONNECT_AT` and `DISCONNECT_AT` (09:00 to

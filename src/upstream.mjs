@@ -24,6 +24,13 @@ export class NorenUpstream extends EventEmitter {
   #attempt = 0;
   #closing = false;
   #paused = false;
+  /**
+   * Set synchronously, because connect() awaits the credential fetch before it
+   * has a socket to guard on. Without it two callers - resume() and the
+   * scheduler, say - both pass the #ws check and open two sessions, which the
+   * account answers by displacing one with the other.
+   */
+  #connecting = false;
   uid = "";
 
   /** Tokens the registry wants; the source of truth across reconnects. */
@@ -38,13 +45,15 @@ export class NorenUpstream extends EventEmitter {
   }
 
   async connect() {
-    if (this.#ws || this.#closing || this.#paused) return;
+    if (this.#ws || this.#connecting || this.#closing || this.#paused) return;
+    this.#connecting = true;
 
     let credentials;
     try {
       credentials = await getCredentials();
     } catch (error) {
       console.error(`[upstream] cannot read credentials: ${error.message}`);
+      this.#connecting = false;
       this.#scheduleReconnect();
       return;
     }
@@ -56,6 +65,7 @@ export class NorenUpstream extends EventEmitter {
     const openedAt = Date.now();
 
     ws.on("open", () => {
+      this.#connecting = false;
       ws.send(
         JSON.stringify({
           t: "c",
@@ -191,6 +201,7 @@ export class NorenUpstream extends EventEmitter {
     clearInterval(this.#heartbeat);
     this.#heartbeat = null;
     this.#authed = false;
+    this.#connecting = false;
     this.#ws = null;
   }
 

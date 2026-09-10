@@ -37,6 +37,9 @@ export const config = {
 
   // Dashboard login. Set both to require signing in; leave either empty and the
   // monitor is open to anyone who can reach the host.
+  // Where the manual connect/kill mode is remembered across restarts.
+  stateFile: process.env.STATE_FILE || "/var/lib/feed-hub/state.json",
+
   dashboardUser: process.env.DASHBOARD_USER || "",
   dashboardPassword: process.env.DASHBOARD_PASSWORD || "",
 

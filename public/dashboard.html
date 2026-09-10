@@ -198,6 +198,52 @@
         max-height: 340px;
         overflow: auto;
       }
+      .controls {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-left: auto;
+      }
+      .btn {
+        font-size: 12px;
+        font-weight: 650;
+        padding: 6px 13px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--panel-2);
+        color: var(--text);
+        cursor: pointer;
+      }
+      .btn:hover:not(:disabled) {
+        filter: brightness(1.25);
+      }
+      .btn:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .btn.start {
+        border-color: rgb(52 211 153 / 0.45);
+        color: var(--up);
+      }
+      .btn.kill {
+        border-color: rgb(248 113 113 / 0.45);
+        color: var(--down);
+      }
+      .btn.on {
+        background: rgb(124 140 255 / 0.16);
+        border-color: var(--accent);
+        color: var(--text);
+      }
+      .banner {
+        background: rgb(248 113 113 / 0.12);
+        border: 1px solid rgb(248 113 113 / 0.4);
+        color: var(--down);
+        border-radius: 12px;
+        padding: 10px 14px;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 16px;
+      }
       footer {
         margin-top: 16px;
         font-size: 12px;
@@ -212,12 +258,26 @@
       <span class="pill"><span class="dot" id="up-dot"></span><span id="up-state">upstream —</span></span>
       <span class="pill"><span class="dot" id="win-dot"></span><span id="win-state">window —</span></span>
       <span class="muted" id="uptime"></span>
-      <a
-        href="/logout"
-        style="margin-left:auto;font-size:12px;color:var(--muted);text-decoration:none;border:1px solid var(--line);padding:4px 11px;border-radius:999px"
-        >Sign out</a
-      >
+      <span class="controls">
+        <button type="button" class="btn start" id="btn-on" title="Hold the Kambala session open, ignoring the daily window">
+          Start feed
+        </button>
+        <button type="button" class="btn kill" id="btn-off" title="Disconnect and stay off the account until restarted here">
+          Kill feed
+        </button>
+        <button type="button" class="btn" id="btn-auto" title="Follow the daily connection window">Auto</button>
+        <a
+          href="/logout"
+          style="font-size:12px;color:var(--muted);text-decoration:none;border:1px solid var(--line);padding:5px 12px;border-radius:999px"
+          >Sign out</a
+        >
+      </span>
     </header>
+
+    <div class="banner" id="killed" hidden>
+      Feed manually killed. The daily window is ignored and website visitors cannot bring it back - press
+      <strong>Auto</strong> or <strong>Start feed</strong> to reconnect.
+    </div>
 
     <section class="grid">
       <div class="card">
@@ -405,6 +465,15 @@
         $("m-fan-sub").textContent =
           fmt(s.totals.broadcasts) + " sent · " + amp.toFixed(1) + "x per tick";
 
+        if (s.control) {
+          const mode = s.control.mode;
+          $("killed").hidden = mode !== "off";
+          for (const [id, value] of [["btn-on", "on"], ["btn-off", "off"], ["btn-auto", "auto"]]) {
+            $(id).classList.toggle("on", mode === value);
+            $(id).disabled = mode === value;
+          }
+        }
+
         if (s.window) {
           $("win-dot").className = "dot " + (s.window.open ? "on" : "off");
           const mins = Math.round(s.window.secondsToChange / 60);
@@ -424,6 +493,30 @@
         renderTop(s.topTokens || [], s.subscribedTokens);
         $("foot").textContent = "updated " + clock(s.at);
       }
+
+      async function setMode(mode) {
+        for (const id of ["btn-on", "btn-off", "btn-auto"]) $(id).disabled = true;
+        try {
+          const res = await fetch("/control", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode }),
+          });
+          // The next stats push repaints the buttons; a failure should not
+          // leave them all disabled.
+          if (!res.ok) throw new Error(String(res.status));
+        } catch {
+          for (const id of ["btn-on", "btn-off", "btn-auto"]) $(id).disabled = false;
+        }
+      }
+
+      $("btn-on").addEventListener("click", () => setMode("on"));
+      $("btn-auto").addEventListener("click", () => setMode("auto"));
+      $("btn-off").addEventListener("click", () => {
+        if (confirm("Disconnect from Kambala and stay off the account? Live prices on the website will stop.")) {
+          setMode("off");
+        }
+      });
 
       let ws;
       let retry = 0;

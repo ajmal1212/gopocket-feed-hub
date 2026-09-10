@@ -4,6 +4,7 @@ import { NorenUpstream } from "./upstream.mjs";
 import { createServer } from "./server.mjs";
 import { metrics } from "./metrics.mjs";
 import { isWindowOpen, windowState } from "./schedule.mjs";
+import { getMode, loadMode, setMode } from "./control.mjs";
 
 const QUOTE_PIN_MS = 60_000;
 const QUOTE_WAIT_MS = 2_000;
@@ -52,7 +53,7 @@ async function ensureQuote(tokens) {
   return registry.snapshot(tokens);
 }
 
-const server = createServer({ registry, upstream, ensureQuote });
+const server = createServer({ registry, upstream, ensureQuote, setControlMode });
 
 upstream.on("tick", (token, packet) => {
   const merged = registry.merge(token, packet);
@@ -88,27 +89,42 @@ if (config.alwaysSubscribe.length > 0) {
  * whatever else is starting up. Checked every half minute; the boundary matters
  * to the minute, not the second.
  */
-let lastWindow = null;
-function applySchedule() {
-  const open = isWindowOpen();
-  if (open === lastWindow) return;
-  lastWindow = open;
+let lastDesired = null;
+function applySchedule(force = false) {
+  const mode = getMode();
+  // "off" and "on" outrank the clock; only "auto" consults it.
+  const desired = mode === "off" ? false : mode === "on" ? true : isWindowOpen();
+
+  if (!force && desired === lastDesired) return;
+  lastDesired = desired;
 
   const state = windowState();
-  if (open) {
-    console.log(`[hub] window open (${state.opensAt}-${state.closesAt} IST), connecting`);
+  if (desired) {
+    const why = mode === "on" ? "manually started" : `window open (${state.opensAt}-${state.closesAt} IST)`;
+    console.log(`[hub] ${why}, connecting`);
+    // resume() reconnects when it was paused; connect() covers the case where
+    // it never was. Both are guarded against opening a second session.
     upstream.resume();
     upstream.connect();
   } else {
-    console.log(`[hub] window closed, releasing the session until ${state.opensAt} IST`);
+    const why = mode === "off" ? "manually killed - staying off the account" : `window closed until ${state.opensAt} IST`;
+    console.log(`[hub] ${why}, releasing the session`);
     upstream.pause();
   }
 }
 
-setInterval(applySchedule, 30_000).unref();
+/** Called by the dashboard. Applies immediately rather than waiting for the tick. */
+function setControlMode(next) {
+  const mode = setMode(next);
+  applySchedule(true);
+  return mode;
+}
 
+setInterval(() => applySchedule(), 30_000).unref();
+
+loadMode();
 server.listen();
-applySchedule();
+applySchedule(true);
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {

@@ -5,6 +5,7 @@ import { fetchCandles, isValidInterval, INTERVALS, DAILY } from "./candles.mjs";
 import { metrics } from "./metrics.mjs";
 import { windowState } from "./schedule.mjs";
 import { authEnabled, checkLogin, isAuthorised, sessionCookie, clearedCookie } from "./auth.mjs";
+import { controlState, MODES } from "./control.mjs";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -66,7 +67,7 @@ const json = (res, status, body) => {
  *             {"type":"tick","tick":{...}}     on every update
  *             {"type":"status","up":true}      upstream connectivity
  */
-export function createServer({ registry, upstream, ensureQuote }) {
+export function createServer({ registry, upstream, ensureQuote, setControlMode }) {
   const clients = new Set();
   const statsClients = new Set();
   const connectionsPerIp = new Map();
@@ -77,6 +78,7 @@ export function createServer({ registry, upstream, ensureQuote }) {
       subscribedTokens: registry.watchedTokens(),
     }),
     window: windowState(),
+    control: controlState(),
   });
 
   const http = createHttpServer((req, res) => {
@@ -92,6 +94,28 @@ export function createServer({ registry, upstream, ensureQuote }) {
           // Deliberately vague: which half was wrong is not the visitor's business.
           html(res, loginPage("Wrong username or password."), 401);
         }
+      });
+      return;
+    }
+
+    // Manual start/kill from the dashboard. Behind the same login as the data,
+    // because it can take the site's prices offline.
+    if (url.pathname === "/control" && req.method === "POST") {
+      if (!isAuthorised(req)) return json(res, 401, { error: "sign in required" });
+
+      readBody(req).then((body) => {
+        let mode;
+        try {
+          mode = JSON.parse(body || "{}").mode;
+        } catch {
+          mode = null;
+        }
+        if (!MODES.includes(mode)) {
+          return json(res, 400, { error: `mode must be one of ${MODES.join(", ")}` });
+        }
+        setControlMode(mode);
+        console.log(`[control] mode set to "${mode}" from the dashboard`);
+        json(res, 200, controlState());
       });
       return;
     }
