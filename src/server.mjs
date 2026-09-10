@@ -1,6 +1,7 @@
 import { createServer as createHttpServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { config } from "./config.mjs";
+import { fetchCandles, isValidInterval, INTERVALS } from "./candles.mjs";
 
 const PING_MS = 30_000;
 
@@ -59,6 +60,34 @@ export function createServer({ registry, upstream, ensureQuote }) {
           res.end(JSON.stringify({ ticks }));
         })
         .catch(() => json(res, 502, { error: "upstream unavailable" }));
+      return;
+    }
+
+    // Historical candles for the chart on a stock page. The live feed extends
+    // the newest candle in the browser, so this only has to be roughly current.
+    if (url.pathname === "/candles") {
+      const key = url.searchParams.get("token") || "";
+      const interval = Number(url.searchParams.get("interval") || 5);
+      const now = Math.floor(Date.now() / 1000);
+      const to = Number(url.searchParams.get("to") || now);
+      const from = Number(url.searchParams.get("from") || to - 24 * 60 * 60);
+
+      if (!isValidInterval(interval)) {
+        return json(res, 400, { error: "interval must be one of " + INTERVALS.join(",") });
+      }
+      if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) {
+        return json(res, 400, { error: "bad from/to" });
+      }
+
+      fetchCandles({ key, interval, from, to })
+        .then((candles) => {
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Cache-Control": "public, max-age=30",
+          });
+          res.end(JSON.stringify({ interval, candles }));
+        })
+        .catch((error) => json(res, 502, { error: String(error.message || error) }));
       return;
     }
 

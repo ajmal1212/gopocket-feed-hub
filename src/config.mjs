@@ -7,6 +7,8 @@ const int = (value, fallback) => {
 
 export const config = {
   norenUrl: process.env.NOREN_WS_URL || "wss://skypro.skybroking.com/NorenWSWeb/",
+  // Same host, HTTP side: TPSeries and the other REST calls.
+  norenRestUrl: process.env.NOREN_REST_URL || "https://skypro.skybroking.com",
   norenUid: process.env.NOREN_UID || "",
   jkey: process.env.FEED_JKEY || "",
   keyFile: process.env.KEY_FILE || "",

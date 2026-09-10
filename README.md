@@ -53,6 +53,17 @@ Two details worth knowing:
 - `GET /quote?tokens=NSE|3045,NSE|26000` - last known prices, for SSR. A token
   nobody is watching is subscribed on demand, waited on for up to 2s, and kept
   warm for a minute.
+- `GET /candles?token=NSE|1333&interval=5&from=<epoch>&to=<epoch>` - historical
+  candles from Noren's TPSeries, oldest-first as `{t,o,h,l,c,v}`. `interval` is
+  minutes, one of 1, 2, 3, 4, 5, 10, 15, 30, 45, 60; `from`/`to` default to the
+  last 24 hours. Closed candles never change, so responses are cached for 30s -
+  long enough to be cheap, short enough that the forming candle stays current
+  while the live feed moves the last price in the browser.
+
+  Candles live here rather than in Frappe because TPSeries authenticates with
+  the same session key this service already refreshes, and takes the same
+  `EXCHANGE|TOKEN` the live feed uses - `NSE|1333` needs no translation. One
+  market-data boundary, one credential to rotate.
 
 ## Deploying with Portainer
 
