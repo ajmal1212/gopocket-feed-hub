@@ -1,4 +1,5 @@
-import { config, getFreshKey } from "./config.mjs";
+import { config } from "./config.mjs";
+import { getCredentials } from "./credentials.mjs";
 
 /**
  * Historical candles, from Noren's TPSeries.
@@ -79,15 +80,14 @@ async function fetchDaily({ exch, symbol, from, to }) {
   const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < DAILY_TTL_MS) return hit.candles;
 
-  const jKey = await getFreshKey();
-  if (!jKey) throw new Error("no session key");
+  const { jkey } = await getCredentials();
 
   const jData = JSON.stringify({ sym: `${exch}:${symbol}`, from, to });
 
   const response = await fetch(`${config.norenRestUrl}${EOD_PATH}`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `jData=${jData}&jKey=${jKey}`,
+    body: `jData=${jData}&jKey=${jkey}`,
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
 
@@ -140,11 +140,10 @@ export async function fetchCandles({ key, interval, from, to, symbol }) {
   const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.candles;
 
-  const jKey = await getFreshKey();
-  if (!jKey) throw new Error("no session key");
+  const { jkey, uid } = await getCredentials();
 
   const jData = JSON.stringify({
-    uid: config.norenUid,
+    uid,
     exch: parts.exch,
     token: parts.token,
     st: String(from),
@@ -157,7 +156,7 @@ export async function fetchCandles({ key, interval, from, to, symbol }) {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     // Deliberately assembled by hand: URLSearchParams would percent-encode
     // jData, which the upstream rejects.
-    body: `jData=${jData}&jKey=${jKey}`,
+    body: `jData=${jData}&jKey=${jkey}`,
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
 

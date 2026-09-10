@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
-import { config, getFreshKey } from "./config.mjs";
+import { config } from "./config.mjs";
+import { getCredentials, invalidateCredentials } from "./credentials.mjs";
 
 const HEARTBEAT_MS = 10_000;
 const SUBSCRIBE_DEBOUNCE_MS = 200;
@@ -22,6 +23,8 @@ export class NorenUpstream extends EventEmitter {
   #reconnect = null;
   #attempt = 0;
   #closing = false;
+  #paused = false;
+  uid = "";
 
   /** Tokens the registry wants; the source of truth across reconnects. */
   #wanted = new Set();
@@ -35,14 +38,18 @@ export class NorenUpstream extends EventEmitter {
   }
 
   async connect() {
-    if (this.#ws || this.#closing) return;
+    if (this.#ws || this.#closing || this.#paused) return;
 
-    const key = await getFreshKey();
-    if (!key) {
-      console.error("[upstream] no session key available; retrying");
+    let credentials;
+    try {
+      credentials = await getCredentials();
+    } catch (error) {
+      console.error(`[upstream] cannot read credentials: ${error.message}`);
       this.#scheduleReconnect();
       return;
     }
+
+    this.uid = credentials.uid;
 
     const ws = new WebSocket(config.norenUrl);
     this.#ws = ws;
@@ -52,9 +59,9 @@ export class NorenUpstream extends EventEmitter {
       ws.send(
         JSON.stringify({
           t: "c",
-          susertoken: key,
-          actid: config.norenUid,
-          uid: config.norenUid,
+          susertoken: credentials.jkey,
+          actid: credentials.uid,
+          uid: credentials.uid,
           source: "WEB",
         }),
       );
@@ -76,7 +83,7 @@ export class NorenUpstream extends EventEmitter {
       const displaced = wasAuthed && code === 1000 && aliveMs < 30_000;
       if (displaced) {
         console.error(
-          `[upstream] displaced after ${(aliveMs / 1000).toFixed(1)}s - another session is using ${config.norenUid}. ` +
+          `[upstream] displaced after ${(aliveMs / 1000).toFixed(1)}s - another session is using ${this.uid}. ` +
             "The hub needs an account of its own; reconnecting will just fight over it.",
         );
       } else {
@@ -100,15 +107,16 @@ export class NorenUpstream extends EventEmitter {
       if (msg.s === "OK") {
         this.#authed = true;
         this.#attempt = 0;
-        console.log(`[upstream] authenticated as ${config.norenUid}`);
+        console.log(`[upstream] authenticated as ${this.uid}`);
         // Everything the registry wants, re-sent from scratch: the server keeps
         // no memory of a session that just died.
         if (this.#wanted.size > 0) this.#send("t", [...this.#wanted]);
         this.#startHeartbeat();
         this.emit("status", true);
       } else {
-        // A rejected key is not worth retrying quickly - it is stale, and the
-        // next connect will re-read it, so back off and let the minter catch up.
+        // A rejected key is stale. Drop the cached copy so the next attempt
+        // re-reads Frappe, which rotates it every morning around 08:15.
+        invalidateCredentials();
         console.error("[upstream] authentication rejected - session key is stale or wrong");
         this.#ws?.close();
       }
@@ -169,7 +177,7 @@ export class NorenUpstream extends EventEmitter {
   }
 
   #scheduleReconnect() {
-    if (this.#reconnect || this.#closing) return;
+    if (this.#reconnect || this.#closing || this.#paused) return;
     const delay = BACKOFF_MS[Math.min(this.#attempt, BACKOFF_MS.length - 1)];
     this.#attempt += 1;
     console.log(`[upstream] reconnecting in ${delay / 1000}s`);
@@ -193,6 +201,28 @@ export class NorenUpstream extends EventEmitter {
     const ws = this.#ws;
     this.#teardown();
     ws?.close();
+  }
+
+  /**
+   * Hold the session closed until resumed. Distinct from `disconnect()`, which
+   * the reconnect loop is free to undo - outside the daily window the hub must
+   * stay off the account entirely, because only one session may hold it.
+   */
+  pause() {
+    if (this.#paused) return;
+    this.#paused = true;
+    this.disconnect();
+  }
+
+  resume() {
+    if (!this.#paused) return;
+    this.#paused = false;
+    this.#attempt = 0;
+    this.connect();
+  }
+
+  get paused() {
+    return this.#paused;
   }
 
   shutdown() {

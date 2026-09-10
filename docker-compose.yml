@@ -11,8 +11,17 @@ services:
       # wins, so this account must belong to the hub alone. Point a second
       # environment at the same account and one of them goes dark.
       NOREN_WS_URL: ${NOREN_WS_URL:-wss://skypro.skybroking.com/NorenWSWeb/}
-      NOREN_UID: ${NOREN_UID:?set NOREN_UID}
-      FEED_JKEY: ${FEED_JKEY:?set FEED_JKEY}
+      NOREN_REST_URL: ${NOREN_REST_URL:-https://skypro.skybroking.com}
+
+      # The session key rotates daily in Frappe; the hub reads it on every
+      # connect. Only this API token is long-lived.
+      FRAPPE_URL: ${FRAPPE_URL:-https://pulse.gopocket.in}
+      FRAPPE_TOKEN: ${FRAPPE_TOKEN:?set FRAPPE_TOKEN}
+
+      # Daily window, IST. Runs late because MCX trades into the night.
+      CONNECT_AT: ${CONNECT_AT:-09:00}
+      DISCONNECT_AT: ${DISCONNECT_AT:-23:45}
+      ALWAYS_SUBSCRIBE: ${ALWAYS_SUBSCRIBE:-NSE|26000}
 
       # Browsers allowed to open a socket. No wildcards.
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://gopocket.in,https://www.gopocket.in,http://localhost:4321}
@@ -23,7 +32,6 @@ services:
       PORT: 8090
       MAX_CONNECTIONS_PER_IP: ${MAX_CONNECTIONS_PER_IP:-8}
       MAX_TOKENS_PER_CLIENT: ${MAX_TOKENS_PER_CLIENT:-120}
-      IDLE_DISCONNECT_MS: ${IDLE_DISCONNECT_MS:-300000}
 
     ports:
       # Published on every interface, so the host firewall is the boundary

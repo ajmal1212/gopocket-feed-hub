@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 const int = (value, fallback) => {
   const n = Number.parseInt(value ?? "", 10);
   return Number.isFinite(n) ? n : fallback;
@@ -9,9 +7,26 @@ export const config = {
   norenUrl: process.env.NOREN_WS_URL || "wss://skypro.skybroking.com/NorenWSWeb/",
   // Same host, HTTP side: TPSeries and the other REST calls.
   norenRestUrl: process.env.NOREN_REST_URL || "https://skypro.skybroking.com",
-  norenUid: process.env.NOREN_UID || "",
+  // Session credentials now live in Frappe and rotate daily; these two are only
+  // an override for local development against a key you already hold.
   jkey: process.env.FEED_JKEY || "",
-  keyFile: process.env.KEY_FILE || "",
+  norenUidOverride: process.env.NOREN_UID || "",
+
+  // Frappe holds the rotating key. This token does not rotate, so it stays here.
+  frappeUrl: (process.env.FRAPPE_URL || "https://pulse.gopocket.in").replace(/\/$/, ""),
+  frappeToken: process.env.FRAPPE_TOKEN || "",
+
+  // Daily connection window, IST. Runs past the equity close because MCX
+  // trades into the night.
+  connectAt: process.env.CONNECT_AT || "09:00",
+  disconnectAt: process.env.DISCONNECT_AT || "23:45",
+
+  // Held open for the life of the session so the feed always has a live
+  // subscription: Nifty 50 ticks through every market hour.
+  alwaysSubscribe: (process.env.ALWAYS_SUBSCRIBE || "NSE|26000")
+    .split(",")
+    .map((token) => token.trim())
+    .filter(Boolean),
 
   port: int(process.env.PORT, 8090),
   host: process.env.HOST || "127.0.0.1",
@@ -28,18 +43,3 @@ export const config = {
   maxTokensPerClient: int(process.env.MAX_TOKENS_PER_CLIENT, 120),
   idleDisconnectMs: int(process.env.IDLE_DISCONNECT_MS, 5 * 60 * 1000),
 };
-
-/**
- * The session key rotates daily. Reading it fresh on every connect - rather
- * than once at boot - means whatever mints the key can drop a new one in
- * KEY_FILE and the hub picks it up on its next reconnect, no restart needed.
- *
- * When the key eventually comes from Frappe, this is the only function that
- * changes: make it an async fetch and the rest of the hub is unaffected.
- */
-export async function getFreshKey() {
-  if (config.keyFile) {
-    return readFileSync(config.keyFile, "utf8").trim();
-  }
-  return config.jkey;
-}

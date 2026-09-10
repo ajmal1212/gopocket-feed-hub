@@ -210,6 +210,7 @@
       <h1>Feed hub</h1>
       <span class="pill"><span class="dot" id="hub-dot"></span><span id="hub-state">connecting…</span></span>
       <span class="pill"><span class="dot" id="up-dot"></span><span id="up-state">upstream —</span></span>
+      <span class="pill"><span class="dot" id="win-dot"></span><span id="win-state">window —</span></span>
       <span class="muted" id="uptime"></span>
     </header>
 
@@ -382,7 +383,11 @@
       function apply(s) {
         $("m-upstream").textContent = s.upstream.connections;
         $("m-upstream-sub").textContent =
-          s.upstream.reconnects + " connects · " + s.upstream.displacements + " displaced";
+          s.upstream.reconnects +
+          " connects · " +
+          s.upstream.displacements +
+          " displaced" +
+          (s.window && !s.window.open ? " · outside window" : "");
         $("m-clients").textContent = fmt(s.clients.current);
         $("m-clients-sub").textContent = "peak " + fmt(s.clients.peak) + " · " + fmt(s.clients.totalEver) + " all time";
         $("m-tokens").textContent = fmt(s.tokensWatched);
@@ -394,6 +399,15 @@
         const amp = s.totals.ticks > 0 ? s.totals.broadcasts / s.totals.ticks : 0;
         $("m-fan-sub").textContent =
           fmt(s.totals.broadcasts) + " sent · " + amp.toFixed(1) + "x per tick";
+
+        if (s.window) {
+          $("win-dot").className = "dot " + (s.window.open ? "on" : "off");
+          const mins = Math.round(s.window.secondsToChange / 60);
+          const when = mins > 90 ? Math.round(mins / 60) + "h" : mins + "m";
+          $("win-state").textContent = s.window.open
+            ? "window open · closes " + s.window.closesAt + " (in " + when + ")"
+            : "outside window · opens " + s.window.opensAt + " (in " + when + ")";
+        }
 
         const up = s.upstream.connected;
         $("up-dot").className = "dot " + (up ? "on" : "off");

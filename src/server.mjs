@@ -3,6 +3,7 @@ import { WebSocketServer } from "ws";
 import { config } from "./config.mjs";
 import { fetchCandles, isValidInterval, INTERVALS, DAILY } from "./candles.mjs";
 import { metrics } from "./metrics.mjs";
+import { windowState } from "./schedule.mjs";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -46,11 +47,13 @@ export function createServer({ registry, upstream, ensureQuote }) {
   const statsClients = new Set();
   const connectionsPerIp = new Map();
 
-  const snapshot = () =>
-    metrics.snapshot({
+  const snapshot = () => ({
+    ...metrics.snapshot({
       tokensWatched: registry.watchedCount,
       subscribedTokens: registry.watchedTokens(),
-    });
+    }),
+    window: windowState(),
+  });
 
   const http = createHttpServer((req, res) => {
     const url = new URL(req.url, "http://localhost");

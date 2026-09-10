@@ -141,13 +141,44 @@ curl 'https://mktfeed.gopocket.in/quote?tokens=NSE|3045'
 `deploy/feed-hub.service` and `deploy/nginx.conf` run it straight on a host
 under systemd; the README history of this file has the long form.
 
-## The session key
+## Credentials
 
-`FEED_JKEY` rotates daily. Rather than restarting the service, set `KEY_FILE`
-and have whatever mints the key write it there - the hub re-reads that file on
-every reconnect, and re-reads it automatically when the feed rejects a stale
-key. `getFreshKey()` in `src/config.mjs` is the single place to change when the
-key starts coming from Frappe instead.
+The feed session key and account id are read from Frappe, not from the
+environment:
+
+```
+GET {FRAPPE_URL}/api/resource/Website live price/Website live price
+Authorization: token {FRAPPE_TOKEN}
+-> { "data": { "jkey": "...", "uid": "SKY100" } }
+```
+
+Frappe regenerates that key every morning around 08:15, so the hub reads the
+pair on **every connect** rather than holding one from boot - and an expired key
+is self-healing: authentication fails, the socket closes, the cached copy is
+dropped, and the reconnect picks up whatever Frappe has by then. The response is
+cached for a minute so a reconnect loop cannot turn into a request loop.
+
+`FRAPPE_TOKEN` is the one credential that does not rotate, which is why it stays
+in the environment. `FEED_JKEY` and `NOREN_UID` remain only as a local
+development override; set both and Frappe is bypassed.
+
+## Connection window
+
+The hub holds its session between `CONNECT_AT` and `DISCONNECT_AT` (09:00 to
+23:45 IST by default) rather than connecting when someone asks for a price. The
+account permits exactly one live session, so the hub either holds it or stays
+off it entirely - reconnecting on demand risks colliding with whatever else is
+starting up. The window runs past the equity close because MCX trades into the
+night.
+
+Outside the window the upstream is *paused*, which is distinct from
+disconnected: the reconnect loop is suppressed, so nothing quietly reopens the
+session at 3am.
+
+`ALWAYS_SUBSCRIBE` (Nifty 50 by default) is held by a watcher that never goes
+away, so the feed always has something flowing. That makes the connection
+demonstrably alive rather than merely open, and gives the dashboard a heartbeat
+when no visitor is on the site.
 
 ## Local development
 

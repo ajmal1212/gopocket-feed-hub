@@ -3,6 +3,7 @@ import { Registry } from "./registry.mjs";
 import { NorenUpstream } from "./upstream.mjs";
 import { createServer } from "./server.mjs";
 import { metrics } from "./metrics.mjs";
+import { isWindowOpen, windowState } from "./schedule.mjs";
 
 const QUOTE_PIN_MS = 60_000;
 const QUOTE_WAIT_MS = 2_000;
@@ -65,19 +66,49 @@ upstream.on("status", (up, info) => {
   server.announceStatus(up);
 });
 
-// Nobody watching means no reason to hold the account's one session. Overnight
-// the hub sits idle with no upstream connection, and wakes on the next visitor.
-setInterval(() => {
-  if (registry.watchedCount === 0 && upstream.connected) {
-    console.log("[hub] idle, releasing upstream session");
-    upstream.disconnect();
-  } else if (registry.watchedCount > 0 && !upstream.connected) {
+/**
+ * Tokens the hub subscribes to for its own sake, held by a watcher that never
+ * goes away. Nifty 50 prints through every market hour, so the feed always has
+ * something flowing - which keeps the connection demonstrably alive rather than
+ * merely open, and gives the dashboard a heartbeat when no visitor is on the
+ * site.
+ */
+const alwaysWatcher = Symbol("always");
+if (config.alwaysSubscribe.length > 0) {
+  const fresh = registry.add(alwaysWatcher, config.alwaysSubscribe);
+  if (fresh.length > 0) upstream.subscribe(fresh);
+  console.log(`[hub] always subscribed: ${config.alwaysSubscribe.join(", ")}`);
+}
+
+/**
+ * The daily window, rather than connecting on demand.
+ *
+ * The account permits one live session, so the hub either holds it or stays off
+ * it - reconnecting whenever a visitor appears would risk colliding with
+ * whatever else is starting up. Checked every half minute; the boundary matters
+ * to the minute, not the second.
+ */
+let lastWindow = null;
+function applySchedule() {
+  const open = isWindowOpen();
+  if (open === lastWindow) return;
+  lastWindow = open;
+
+  const state = windowState();
+  if (open) {
+    console.log(`[hub] window open (${state.opensAt}-${state.closesAt} IST), connecting`);
+    upstream.resume();
     upstream.connect();
+  } else {
+    console.log(`[hub] window closed, releasing the session until ${state.opensAt} IST`);
+    upstream.pause();
   }
-}, config.idleDisconnectMs).unref();
+}
+
+setInterval(applySchedule, 30_000).unref();
 
 server.listen();
-upstream.connect();
+applySchedule();
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
