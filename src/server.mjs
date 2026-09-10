@@ -142,7 +142,19 @@ export function createServer({ registry, upstream, ensureQuote }) {
 
   http.on("upgrade", (req, socket, head) => {
     const origin = req.headers.origin;
-    if (config.allowedOrigins.length > 0 && origin && !config.allowedOrigins.includes(origin)) {
+
+    // The monitoring dashboard is served by this process, so its origin is
+    // whatever address the hub is reached on - an IP and port on a private
+    // network, typically, which nobody would think to put in ALLOWED_ORIGINS.
+    // A page we served ourselves must always be allowed to talk back to us.
+    let sameOrigin = false;
+    try {
+      sameOrigin = Boolean(origin) && new URL(origin).host === req.headers.host;
+    } catch {
+      sameOrigin = false;
+    }
+
+    if (!sameOrigin && config.allowedOrigins.length > 0 && origin && !config.allowedOrigins.includes(origin)) {
       socket.destroy();
       return;
     }

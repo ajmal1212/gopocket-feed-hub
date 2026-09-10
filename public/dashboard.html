@@ -408,6 +408,7 @@
 
       let ws;
       let retry = 0;
+      let everConnected = false;
 
       function connect() {
         const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -422,12 +423,22 @@
 
         ws.addEventListener("message", (event) => {
           const msg = JSON.parse(event.data);
-          if (msg.type === "stats") apply(msg.stats);
+          if (msg.type === "stats") {
+            everConnected = true;
+            apply(msg.stats);
+          }
         });
 
         ws.addEventListener("close", () => {
           $("hub-dot").className = "dot off";
-          $("hub-state").textContent = "reconnecting…";
+          // Never having connected at all is a different problem from having
+          // dropped, and almost always the origin allowlist refusing the
+          // upgrade. Say so rather than spinning on "reconnecting" forever.
+          $("hub-state").textContent = everConnected ? "reconnecting…" : "socket refused by hub";
+          if (!everConnected && retry > 1) {
+            $("foot").textContent =
+              "The stats socket was refused. Check ALLOWED_ORIGINS on the hub, or reach the dashboard on the same host and port the hub is served from.";
+          }
           setTimeout(connect, Math.min(10000, 500 * 2 ** retry++));
         });
 
