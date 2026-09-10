@@ -52,10 +52,26 @@ Two details worth knowing:
 - `GET /` (or `/dashboard`) - a live monitoring page: how many connections the
   hub holds to Kambala (one, by design), how many users are connected, how many
   tokens are subscribed between them, the tick rate coming in, the fan-out rate
-  going out, the actual ticks as they arrive, and the busiest tokens. Gate it
-  with `DASHBOARD_TOKEN` if the hub is reachable by anyone but you.
+  going out, the actual ticks as they arrive, and the busiest tokens.
 - `GET /stats` - the same numbers as JSON. The dashboard uses the WebSocket
   instead: send `{"stats":true}` and it pushes a snapshot every second.
+
+### Dashboard login
+
+Set `DASHBOARD_USER` and `DASHBOARD_PASSWORD` and `/` serves a sign-in form; the
+credentials are exchanged for a signed, HttpOnly cookie good for 12 hours. There
+is no session store - the cookie carries its own expiry under an HMAC - so a
+restart does not sign anyone out, and changing the password invalidates every
+outstanding session, because the signing key is derived from the credentials.
+
+The login guards the **data**, not just the page: `/stats` returns 401 without
+it, and a socket that never presented a valid cookie is refused the stats
+stream. The price feed stays open, because the site's visitors are anonymous by
+definition - what is protected is the view of what the feed carries and who is
+watching it.
+
+Leave either variable empty and the monitor is open to anyone who can reach the
+host, which is reasonable on a private network and nowhere else.
 - `GET /health` - upstream state, client count, tokens watched.
 - `GET /quote?tokens=NSE|3045,NSE|26000` - last known prices, for SSR. A token
   nobody is watching is subscribed on demand, waited on for up to 2s, and kept

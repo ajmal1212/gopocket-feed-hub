@@ -4,6 +4,7 @@ import { config } from "./config.mjs";
 import { fetchCandles, isValidInterval, INTERVALS, DAILY } from "./candles.mjs";
 import { metrics } from "./metrics.mjs";
 import { windowState } from "./schedule.mjs";
+import { authEnabled, checkLogin, isAuthorised, sessionCookie, clearedCookie } from "./auth.mjs";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -19,11 +20,34 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * feed down.
  */
 let dashboardHtml = "";
+let loginHtml = "";
 try {
   dashboardHtml = readFileSync(join(HERE, "..", "public", "dashboard.html"), "utf8");
+  loginHtml = readFileSync(join(HERE, "..", "public", "login.html"), "utf8");
 } catch {
   dashboardHtml = "<!doctype html><title>Feed hub</title><p>Dashboard file missing.</p>";
+  loginHtml = dashboardHtml;
 }
+
+const loginPage = (error) =>
+  loginHtml.replace("<!--ERROR-->", error ? `<p class="error">${error}</p>` : "");
+
+const html = (res, body, status = 200, headers = {}) => {
+  res.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...headers });
+  res.end(body);
+};
+
+/** Form bodies are small; anything larger is not a login attempt. */
+const readBody = (req) =>
+  new Promise((resolve) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+      if (data.length > 4096) req.destroy();
+    });
+    req.on("end", () => resolve(data));
+    req.on("error", () => resolve(""));
+  });
 
 const json = (res, status, body) => {
   res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
@@ -58,16 +82,34 @@ export function createServer({ registry, upstream, ensureQuote }) {
   const http = createHttpServer((req, res) => {
     const url = new URL(req.url, "http://localhost");
 
-    if (url.pathname === "/" || url.pathname === "/dashboard") {
-      if (config.dashboardToken && url.searchParams.get("key") !== config.dashboardToken) {
-        return json(res, 401, { error: "dashboard key required" });
-      }
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      res.end(dashboardHtml);
+    if (url.pathname === "/login" && req.method === "POST") {
+      readBody(req).then((body) => {
+        const form = new URLSearchParams(body);
+        if (checkLogin(form.get("username"), form.get("password"))) {
+          res.writeHead(303, { Location: "/", "Set-Cookie": sessionCookie(req) });
+          res.end();
+        } else {
+          // Deliberately vague: which half was wrong is not the visitor's business.
+          html(res, loginPage("Wrong username or password."), 401);
+        }
+      });
       return;
     }
 
+    if (url.pathname === "/logout") {
+      res.writeHead(303, { Location: "/", "Set-Cookie": clearedCookie() });
+      res.end();
+      return;
+    }
+
+    if (url.pathname === "/" || url.pathname === "/dashboard" || url.pathname === "/login") {
+      if (!isAuthorised(req)) return html(res, loginPage(""), 200);
+      return html(res, dashboardHtml);
+    }
+
     if (url.pathname === "/stats") {
+      // The monitoring data is what the login protects, not just the page.
+      if (!isAuthorised(req)) return json(res, 401, { error: "sign in required" });
       return json(res, 200, snapshot());
     }
 
@@ -171,6 +213,9 @@ export function createServer({ registry, upstream, ensureQuote }) {
 
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws.ip = ip;
+      // Prices are public; the stats stream is not. Decided here because the
+      // cookie travels with the upgrade, not with later frames.
+      ws.authorised = isAuthorised(req);
       connectionsPerIp.set(ip, (connectionsPerIp.get(ip) || 0) + 1);
       wss.emit("connection", ws, req);
     });
@@ -213,6 +258,10 @@ export function createServer({ registry, upstream, ensureQuote }) {
       // The dashboard asks for stats instead of prices. It is counted as a
       // client like any other, because it is one.
       if (msg.stats === true) {
+        if (!ws.authorised) {
+          send(ws, { type: "error", error: "sign in required" });
+          return;
+        }
         statsClients.add(ws);
         send(ws, { type: "stats", stats: snapshot() });
         return;

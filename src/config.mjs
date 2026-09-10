@@ -35,9 +35,10 @@ export const config = {
     .map((o) => o.trim())
     .filter(Boolean),
 
-  // Set to require ?key=... on the dashboard. Worth setting the moment the
-  // hub is reachable by anyone but you.
-  dashboardToken: process.env.DASHBOARD_TOKEN || "",
+  // Dashboard login. Set both to require signing in; leave either empty and the
+  // monitor is open to anyone who can reach the host.
+  dashboardUser: process.env.DASHBOARD_USER || "",
+  dashboardPassword: process.env.DASHBOARD_PASSWORD || "",
 
   maxConnectionsPerIp: int(process.env.MAX_CONNECTIONS_PER_IP, 8),
   maxTokensPerClient: int(process.env.MAX_TOKENS_PER_CLIENT, 120),
