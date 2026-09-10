@@ -54,6 +54,14 @@ export class Registry {
     return this.#watchers.size;
   }
 
+  /** Every token currently wanted, with how many watchers each has. */
+  watchedTokens() {
+    return [...this.#watchers.entries()].map(([token, set]) => ({
+      token,
+      watchers: set.size,
+    }));
+  }
+
   /**
    * Merge a `tk` snapshot or `tf` delta into the cache and return the merged
    * record. `tf` carries only changed fields, so anything absent must survive.

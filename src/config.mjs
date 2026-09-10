@@ -20,6 +20,10 @@ export const config = {
     .map((o) => o.trim())
     .filter(Boolean),
 
+  // Set to require ?key=... on the dashboard. Worth setting the moment the
+  // hub is reachable by anyone but you.
+  dashboardToken: process.env.DASHBOARD_TOKEN || "",
+
   maxConnectionsPerIp: int(process.env.MAX_CONNECTIONS_PER_IP, 8),
   maxTokensPerClient: int(process.env.MAX_TOKENS_PER_CLIENT, 120),
   idleDisconnectMs: int(process.env.IDLE_DISCONNECT_MS, 5 * 60 * 1000),

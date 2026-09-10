@@ -9,6 +9,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev || npm install --omit=dev
 
 COPY src ./src
+COPY public ./public
 
 # Inside a container the hub must listen on every interface, not just
 # loopback, or nothing outside the container can reach it.

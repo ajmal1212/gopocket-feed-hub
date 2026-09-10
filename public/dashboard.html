@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Feed hub · monitor</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0f17;
+        --panel: #131a26;
+        --panel-2: #182130;
+        --line: #232e40;
+        --text: #e6edf7;
+        --muted: #8496b0;
+        --up: #34d399;
+        --down: #f87171;
+        --accent: #7c8cff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.5 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+        padding: 24px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0;
+        letter-spacing: -0.01em;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 4px 11px;
+        border-radius: 999px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+      .dot.on {
+        background: var(--up);
+        box-shadow: 0 0 0 3px rgb(52 211 153 / 0.15);
+      }
+      .dot.off {
+        background: var(--down);
+        box-shadow: 0 0 0 3px rgb(248 113 113 / 0.15);
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        .dot.on {
+          animation: pulse 2s ease-in-out infinite;
+        }
+      }
+      @keyframes pulse {
+        50% {
+          box-shadow: 0 0 0 6px rgb(52 211 153 / 0.05);
+        }
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        margin-bottom: 16px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px 16px;
+      }
+      .card .label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .card .value {
+        font-size: 28px;
+        font-weight: 650;
+        margin-top: 6px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.02em;
+      }
+      .card .sub {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      .cols {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: 1.4fr 1fr;
+      }
+      @media (max-width: 860px) {
+        .cols {
+          grid-template-columns: 1fr;
+        }
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+      .panel h2 {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin: 0;
+        padding: 13px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-variant-numeric: tabular-nums;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 7px 16px;
+        font-size: 13px;
+        border-bottom: 1px solid rgb(35 46 64 / 0.5);
+        white-space: nowrap;
+      }
+      th {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      td.num,
+      th.num {
+        text-align: right;
+      }
+      tbody tr:last-child td {
+        border-bottom: 0;
+      }
+      .up {
+        color: var(--up);
+      }
+      .down {
+        color: var(--down);
+      }
+      .flash {
+        animation: flash 0.6s ease-out;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .flash {
+          animation: none;
+        }
+      }
+      @keyframes flash {
+        from {
+          background: rgb(124 140 255 / 0.16);
+        }
+      }
+      svg {
+        display: block;
+        width: 100%;
+        height: 90px;
+      }
+      .chartwrap {
+        padding: 12px 16px 16px;
+      }
+      .scroll {
+        max-height: 340px;
+        overflow: auto;
+      }
+      footer {
+        margin-top: 16px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Feed hub</h1>
+      <span class="pill"><span class="dot" id="hub-dot"></span><span id="hub-state">connecting…</span></span>
+      <span class="pill"><span class="dot" id="up-dot"></span><span id="up-state">upstream —</span></span>
+      <span class="muted" id="uptime"></span>
+    </header>
+
+    <section class="grid">
+      <div class="card">
+        <div class="label">Kambala connections</div>
+        <div class="value" id="m-upstream">—</div>
+        <div class="sub" id="m-upstream-sub">one session by design</div>
+      </div>
+      <div class="card">
+        <div class="label">Concurrent users</div>
+        <div class="value" id="m-clients">—</div>
+        <div class="sub" id="m-clients-sub"></div>
+      </div>
+      <div class="card">
+        <div class="label">Tokens subscribed</div>
+        <div class="value" id="m-tokens">—</div>
+        <div class="sub">union across all users</div>
+      </div>
+      <div class="card">
+        <div class="label">Ticks / second</div>
+        <div class="value" id="m-rate">—</div>
+        <div class="sub" id="m-rate-sub"></div>
+      </div>
+      <div class="card">
+        <div class="label">Fanned out / second</div>
+        <div class="value" id="m-fan">—</div>
+        <div class="sub" id="m-fan-sub"></div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-bottom: 12px">
+      <h2>Ticks received from Kambala · last 60s</h2>
+      <div class="chartwrap">
+        <svg viewBox="0 0 600 90" preserveAspectRatio="none" role="img" aria-label="Ticks per second">
+          <path id="spark-area" fill="rgb(124 140 255 / 0.18)" d="" />
+          <path
+            id="spark-line"
+            fill="none"
+            stroke="var(--accent)"
+            stroke-width="2"
+            vector-effect="non-scaling-stroke"
+            d=""
+          />
+        </svg>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h2>Live feed from Kambala</h2>
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Instrument</th>
+                <th>Token</th>
+                <th class="num">LTP</th>
+                <th class="num">Change</th>
+                <th class="num">At</th>
+              </tr>
+            </thead>
+            <tbody id="recent">
+              <tr>
+                <td colspan="5" class="muted">waiting for ticks…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Busiest tokens</h2>
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Token</th>
+                <th class="num">Ticks</th>
+                <th class="num">Watchers</th>
+              </tr>
+            </thead>
+            <tbody id="top">
+              <tr>
+                <td colspan="3" class="muted">—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <footer id="foot"></footer>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const fmt = (n) => (n === null || n === undefined ? "—" : Number(n).toLocaleString("en-IN"));
+
+      const duration = (ms) => {
+        if (!ms && ms !== 0) return "—";
+        const s = Math.floor(ms / 1000);
+        if (s < 60) return s + "s";
+        const m = Math.floor(s / 60);
+        if (m < 60) return m + "m " + (s % 60) + "s";
+        const h = Math.floor(m / 60);
+        return h + "h " + (m % 60) + "m";
+      };
+
+      const clock = (at) =>
+        new Date(at).toLocaleTimeString("en-IN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+      function sparkline(series) {
+        const W = 600;
+        const H = 90;
+        const max = Math.max(1, ...series);
+        const pts = series.map((v, i) => {
+          const x = (i / Math.max(1, series.length - 1)) * W;
+          const y = H - (v / max) * (H - 6) - 3;
+          return x.toFixed(1) + "," + y.toFixed(1);
+        });
+        const line = "M" + pts.join(" L");
+        $("spark-line").setAttribute("d", line);
+        $("spark-area").setAttribute("d", line + " L" + W + "," + H + " L0," + H + " Z");
+      }
+
+      const seen = new Map();
+
+      function renderRecent(rows) {
+        const body = $("recent");
+        if (!rows.length) return;
+        body.replaceChildren(
+          ...rows.map((row) => {
+            const tr = document.createElement("tr");
+            const pc = row.pc === null ? null : Number.parseFloat(row.pc);
+            const cls = pc === null ? "" : pc >= 0 ? "up" : "down";
+            const sign = pc !== null && pc >= 0 ? "+" : "";
+            tr.innerHTML =
+              "<td>" + esc(row.ts) + "</td>" +
+              '<td class="muted">' + esc(row.k) + "</td>" +
+              '<td class="num">' + (row.lp ? "₹" + row.lp : "—") + "</td>" +
+              '<td class="num ' + cls + '">' + (pc === null ? "—" : sign + pc.toFixed(2) + "%") + "</td>" +
+              '<td class="num muted">' + clock(row.at) + "</td>";
+            // Flash only rows whose price actually moved since the last frame.
+            if (seen.get(row.k) !== row.lp) tr.className = "flash";
+            seen.set(row.k, row.lp);
+            return tr;
+          }),
+        );
+      }
+
+      function renderTop(top, subscribed) {
+        const watchers = new Map((subscribed || []).map((s) => [s.token, s.watchers]));
+        const body = $("top");
+        if (!top.length) return;
+        body.replaceChildren(
+          ...top.map((row) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML =
+              "<td>" + esc(row.token) + "</td>" +
+              '<td class="num">' + fmt(row.count) + "</td>" +
+              '<td class="num muted">' + (watchers.get(row.token) ?? 0) + "</td>";
+            return tr;
+          }),
+        );
+      }
+
+      const esc = (v) =>
+        String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+      function apply(s) {
+        $("m-upstream").textContent = s.upstream.connections;
+        $("m-upstream-sub").textContent =
+          s.upstream.reconnects + " connects · " + s.upstream.displacements + " displaced";
+        $("m-clients").textContent = fmt(s.clients.current);
+        $("m-clients-sub").textContent = "peak " + fmt(s.clients.peak) + " · " + fmt(s.clients.totalEver) + " all time";
+        $("m-tokens").textContent = fmt(s.tokensWatched);
+        $("m-rate").textContent = s.rates.ticksPerSecond;
+        $("m-rate-sub").textContent = fmt(s.totals.ticks) + " total · last " + duration(s.upstream.staleMs) + " ago";
+        $("m-fan").textContent = s.rates.broadcastsPerSecond;
+        // The point of the hub in one number: how many client messages each
+        // upstream tick turns into.
+        const amp = s.totals.ticks > 0 ? s.totals.broadcasts / s.totals.ticks : 0;
+        $("m-fan-sub").textContent =
+          fmt(s.totals.broadcasts) + " sent · " + amp.toFixed(1) + "x per tick";
+
+        const up = s.upstream.connected;
+        $("up-dot").className = "dot " + (up ? "on" : "off");
+        $("up-state").textContent = up ? "upstream live" : "upstream down";
+        $("uptime").textContent = "hub up " + duration(s.uptimeMs);
+
+        sparkline(s.rates.tickSeries);
+        renderRecent(s.recent || []);
+        renderTop(s.topTokens || [], s.subscribedTokens);
+        $("foot").textContent = "updated " + clock(s.at);
+      }
+
+      let ws;
+      let retry = 0;
+
+      function connect() {
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        ws = new WebSocket(proto + "//" + location.host);
+
+        ws.addEventListener("open", () => {
+          retry = 0;
+          $("hub-dot").className = "dot on";
+          $("hub-state").textContent = "connected";
+          ws.send(JSON.stringify({ stats: true }));
+        });
+
+        ws.addEventListener("message", (event) => {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "stats") apply(msg.stats);
+        });
+
+        ws.addEventListener("close", () => {
+          $("hub-dot").className = "dot off";
+          $("hub-state").textContent = "reconnecting…";
+          setTimeout(connect, Math.min(10000, 500 * 2 ** retry++));
+        });
+
+        ws.addEventListener("error", () => ws.close());
+      }
+
+      connect();
+    </script>
+  </body>
+</html>

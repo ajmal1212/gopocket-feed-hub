@@ -73,7 +73,8 @@ export class NorenUpstream extends EventEmitter {
 
       // Authenticated, then closed within seconds, without us asking: that is
       // the displacement signature, not a network blip.
-      if (wasAuthed && code === 1000 && aliveMs < 30_000) {
+      const displaced = wasAuthed && code === 1000 && aliveMs < 30_000;
+      if (displaced) {
         console.error(
           `[upstream] displaced after ${(aliveMs / 1000).toFixed(1)}s - another session is using ${config.norenUid}. ` +
             "The hub needs an account of its own; reconnecting will just fight over it.",
@@ -82,7 +83,7 @@ export class NorenUpstream extends EventEmitter {
         console.warn(`[upstream] closed (code ${code}) after ${(aliveMs / 1000).toFixed(1)}s`);
       }
 
-      this.emit("status", false);
+      this.emit("status", false, { displaced });
       this.#scheduleReconnect();
     });
   }

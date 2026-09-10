@@ -49,6 +49,13 @@ Two details worth knowing:
 
 ## HTTP
 
+- `GET /` (or `/dashboard`) - a live monitoring page: how many connections the
+  hub holds to Kambala (one, by design), how many users are connected, how many
+  tokens are subscribed between them, the tick rate coming in, the fan-out rate
+  going out, the actual ticks as they arrive, and the busiest tokens. Gate it
+  with `DASHBOARD_TOKEN` if the hub is reachable by anyone but you.
+- `GET /stats` - the same numbers as JSON. The dashboard uses the WebSocket
+  instead: send `{"stats":true}` and it pushes a snapshot every second.
 - `GET /health` - upstream state, client count, tokens watched.
 - `GET /quote?tokens=NSE|3045,NSE|26000` - last known prices, for SSR. A token
   nobody is watching is subscribed on demand, waited on for up to 2s, and kept

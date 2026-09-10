@@ -2,6 +2,7 @@ import { config } from "./config.mjs";
 import { Registry } from "./registry.mjs";
 import { NorenUpstream } from "./upstream.mjs";
 import { createServer } from "./server.mjs";
+import { metrics } from "./metrics.mjs";
 
 const QUOTE_PIN_MS = 60_000;
 const QUOTE_WAIT_MS = 2_000;
@@ -53,11 +54,14 @@ async function ensureQuote(tokens) {
 const server = createServer({ registry, upstream, ensureQuote });
 
 upstream.on("tick", (token, packet) => {
-  server.broadcast(token, registry.merge(token, packet));
+  const merged = registry.merge(token, packet);
+  metrics.tick(token, merged);
+  metrics.broadcast(server.broadcast(token, merged));
 });
 
-upstream.on("status", (up) => {
+upstream.on("status", (up, info) => {
   console.log(`[hub] upstream ${up ? "up" : "down"}`);
+  metrics.upstreamStatus(up, info);
   server.announceStatus(up);
 });
 

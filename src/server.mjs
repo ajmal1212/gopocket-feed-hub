@@ -2,8 +2,27 @@ import { createServer as createHttpServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { config } from "./config.mjs";
 import { fetchCandles, isValidInterval, INTERVALS, DAILY } from "./candles.mjs";
+import { metrics } from "./metrics.mjs";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 const PING_MS = 30_000;
+const STATS_MS = 1_000;
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The dashboard is one file with no build step, read once at boot. If it is
+ * missing the hub still runs - monitoring should never be able to take the
+ * feed down.
+ */
+let dashboardHtml = "";
+try {
+  dashboardHtml = readFileSync(join(HERE, "..", "public", "dashboard.html"), "utf8");
+} catch {
+  dashboardHtml = "<!doctype html><title>Feed hub</title><p>Dashboard file missing.</p>";
+}
 
 const json = (res, status, body) => {
   res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
@@ -24,10 +43,30 @@ const json = (res, status, body) => {
  */
 export function createServer({ registry, upstream, ensureQuote }) {
   const clients = new Set();
+  const statsClients = new Set();
   const connectionsPerIp = new Map();
+
+  const snapshot = () =>
+    metrics.snapshot({
+      tokensWatched: registry.watchedCount,
+      subscribedTokens: registry.watchedTokens(),
+    });
 
   const http = createHttpServer((req, res) => {
     const url = new URL(req.url, "http://localhost");
+
+    if (url.pathname === "/" || url.pathname === "/dashboard") {
+      if (config.dashboardToken && url.searchParams.get("key") !== config.dashboardToken) {
+        return json(res, 401, { error: "dashboard key required" });
+      }
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(dashboardHtml);
+      return;
+    }
+
+    if (url.pathname === "/stats") {
+      return json(res, 200, snapshot());
+    }
 
     if (url.pathname === "/health") {
       return json(res, 200, {
@@ -126,6 +165,7 @@ export function createServer({ registry, upstream, ensureQuote }) {
     ws.tokens = new Set();
     ws.isAlive = true;
     clients.add(ws);
+    metrics.clientOpened();
     ws.on("pong", () => {
       ws.isAlive = true;
     });
@@ -155,6 +195,14 @@ export function createServer({ registry, upstream, ensureQuote }) {
         if (Object.keys(snap).length > 0) send(ws, { type: "snap", ticks: snap });
       }
 
+      // The dashboard asks for stats instead of prices. It is counted as a
+      // client like any other, because it is one.
+      if (msg.stats === true) {
+        statsClients.add(ws);
+        send(ws, { type: "stats", stats: snapshot() });
+        return;
+      }
+
       if (Array.isArray(msg.unsub)) {
         const tokens = msg.unsub.filter(isValidToken);
         for (const t of tokens) ws.tokens.delete(t);
@@ -165,6 +213,8 @@ export function createServer({ registry, upstream, ensureQuote }) {
 
     ws.on("close", () => {
       clients.delete(ws);
+      statsClients.delete(ws);
+      metrics.clientClosed();
       const dropped = registry.remove(ws, [...ws.tokens]);
       if (dropped.length > 0) upstream.unsubscribe(dropped);
       const left = (connectionsPerIp.get(ws.ip) || 1) - 1;
@@ -172,6 +222,15 @@ export function createServer({ registry, upstream, ensureQuote }) {
       else connectionsPerIp.set(ws.ip, left);
     });
   });
+
+  const statsTimer = setInterval(() => {
+    if (statsClients.size === 0) return;
+    const payload = JSON.stringify({ type: "stats", stats: snapshot() });
+    for (const ws of statsClients) {
+      if (isOpenSocket(ws)) ws.send(payload);
+      else statsClients.delete(ws);
+    }
+  }, STATS_MS);
 
   // Idle sockets through a proxy die silently; this notices and reclaims them.
   const pinger = setInterval(() => {
@@ -193,13 +252,18 @@ export function createServer({ registry, upstream, ensureQuote }) {
 
     broadcast(token, tick) {
       const watchers = registry.watchersOf(token);
-      if (!watchers) return;
+      if (!watchers) return 0;
       const payload = JSON.stringify({ type: "tick", tick });
+      let sent = 0;
       for (const ws of watchers) {
         // Not every watcher is a socket: an SSR quote pins a token with a
         // placeholder watcher that has nothing to send to.
-        if (isOpenSocket(ws)) ws.send(payload);
+        if (isOpenSocket(ws)) {
+          ws.send(payload);
+          sent += 1;
+        }
       }
+      return sent;
     },
 
     announceStatus(up) {
@@ -215,6 +279,7 @@ export function createServer({ registry, upstream, ensureQuote }) {
 
     close() {
       clearInterval(pinger);
+      clearInterval(statsTimer);
       for (const ws of clients) ws.close();
       http.close();
     },

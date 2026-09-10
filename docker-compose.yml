@@ -17,6 +17,8 @@ services:
       # Browsers allowed to open a socket. No wildcards.
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://gopocket.in,https://www.gopocket.in,http://localhost:4321}
 
+      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-}
+
       HOST: 0.0.0.0
       PORT: 8090
       MAX_CONNECTIONS_PER_IP: ${MAX_CONNECTIONS_PER_IP:-8}
