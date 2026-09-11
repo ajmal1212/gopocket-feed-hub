@@ -35,9 +35,13 @@ export class NorenUpstream extends EventEmitter {
 
   /** Tokens the registry wants; the source of truth across reconnects. */
   #wanted = new Set();
+  /** The subset that also wants five-level market depth. */
+  #wantedDepth = new Set();
   /** Batched diffs, flushed together so a burst of page loads is one frame. */
   #pendingSub = new Set();
   #pendingUnsub = new Set();
+  #pendingDepthSub = new Set();
+  #pendingDepthUnsub = new Set();
   #flush = null;
 
   get connected() {
@@ -121,6 +125,7 @@ export class NorenUpstream extends EventEmitter {
         // Everything the registry wants, re-sent from scratch: the server keeps
         // no memory of a session that just died.
         if (this.#wanted.size > 0) this.#send("t", [...this.#wanted]);
+        if (this.#wantedDepth.size > 0) this.#send("d", [...this.#wantedDepth]);
         this.#startHeartbeat();
         this.emit("status", true);
       } else {
@@ -133,10 +138,17 @@ export class NorenUpstream extends EventEmitter {
       return;
     }
 
-    if (msg.t === "tk" || msg.t === "tf") {
-      // `tf` carries only the fields that changed, so the merge happens in the
-      // registry cache. Exchange must be part of the key: BSE|1 is SENSEX and
-      // NSE|1 is something else entirely.
+    // Touchline (`tk` snapshot, `tf` update) and depth (`dk`, `df`) arrive as
+    // separate streams, but a depth packet is a superset of a touchline one -
+    // the same lp/pc/v fields plus five levels a side, the order totals and the
+    // 52-week and circuit limits. So both merge into the one record per token
+    // and go out as ticks: a client never has to reconcile two versions of the
+    // same price, and a depth subscriber keeps getting prices whichever stream
+    // the feed happens to print on.
+    if (msg.t === "tk" || msg.t === "tf" || msg.t === "dk" || msg.t === "df") {
+      // The update packets carry only the fields that changed, so the merge
+      // happens in the registry cache. Exchange must be part of the key: BSE|1
+      // is SENSEX and NSE|1 is something else entirely.
       if (!msg.e || !msg.tk) return;
       this.emit("tick", `${msg.e}|${msg.tk}`, msg);
     }
@@ -161,14 +173,45 @@ export class NorenUpstream extends EventEmitter {
     this.#scheduleFlush();
   }
 
+  /** Add five-level depth for tokens already subscribed with `subscribe()`. */
+  subscribeDepth(tokens) {
+    for (const t of tokens) {
+      this.#wantedDepth.add(t);
+      this.#pendingDepthUnsub.delete(t);
+      this.#pendingDepthSub.add(t);
+    }
+    this.#scheduleFlush();
+  }
+
+  unsubscribeDepth(tokens) {
+    for (const t of tokens) {
+      this.#wantedDepth.delete(t);
+      this.#pendingDepthSub.delete(t);
+      this.#pendingDepthUnsub.add(t);
+    }
+    this.#scheduleFlush();
+  }
+
   #scheduleFlush() {
     if (this.#flush) return;
     this.#flush = setTimeout(() => {
       this.#flush = null;
       if (this.#pendingSub.size > 0) this.#send("t", [...this.#pendingSub]);
+      if (this.#pendingDepthSub.size > 0) this.#send("d", [...this.#pendingDepthSub]);
+      if (this.#pendingDepthUnsub.size > 0) {
+        this.#send("ud", [...this.#pendingDepthUnsub]);
+        // Whether dropping depth also drops the touchline it rode alongside is
+        // the feed's business, not ours to guess. Re-asking for touchline on
+        // the tokens still wanted costs one snapshot packet each and makes the
+        // answer irrelevant: prices keep flowing either way.
+        const still = [...this.#pendingDepthUnsub].filter((t) => this.#wanted.has(t));
+        if (still.length > 0) this.#send("t", still);
+      }
       if (this.#pendingUnsub.size > 0) this.#send("u", [...this.#pendingUnsub]);
       this.#pendingSub.clear();
       this.#pendingUnsub.clear();
+      this.#pendingDepthSub.clear();
+      this.#pendingDepthUnsub.clear();
     }, SUBSCRIBE_DEBOUNCE_MS);
   }
 

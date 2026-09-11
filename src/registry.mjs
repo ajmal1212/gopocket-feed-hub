@@ -1,3 +1,6 @@
+/** Fields only a depth subscription keeps current - see `stripDepth()`. */
+const DEPTH_ONLY = /^(?:[bs][pq][2-5]|[bs]o[1-5]|tbq|tsq|ltq|ltt)$/;
+
 /**
  * Who is watching what, and the last known state of everything watched.
  *
@@ -76,6 +79,24 @@ export class Registry {
     merged.k = token;
     this.#cache.set(token, merged);
     return merged;
+  }
+
+  /**
+   * Forget the depth a token no longer has anyone watching.
+   *
+   * Touchline keeps refreshing the best bid and ask (level 1), but levels 2-5,
+   * the order counts, the totals and the last trade would freeze at whatever
+   * they were when depth stopped - and a later snapshot would hand them out as
+   * if they were current. The 52-week range and circuit limits stay: they hold
+   * for the whole day, and a stock page is better off rendering them from
+   * cache than waiting for the socket.
+   */
+  stripDepth(token) {
+    const tick = this.#cache.get(token);
+    if (!tick) return;
+    for (const field of Object.keys(tick)) {
+      if (DEPTH_ONLY.test(field)) delete tick[field];
+    }
   }
 
   snapshot(tokens) {

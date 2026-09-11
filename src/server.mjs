@@ -12,6 +12,12 @@ import { dirname, join } from "node:path";
 
 const PING_MS = 30_000;
 const STATS_MS = 1_000;
+/**
+ * Depth is several times the packets of touchline for the same token, and a
+ * page shows one order book - so a client gets a handful, not the full token
+ * allowance.
+ */
+const MAX_DEPTH_PER_CLIENT = 5;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -63,14 +69,27 @@ const json = (res, status, body) => {
  * can be swapped without touching a single page:
  *
  *   client -> {"sub":["NSE|3045"]} | {"unsub":[...]}
+ *             {"depth":["NSE|3045"]} | {"undepth":[...]}
  *   server -> {"type":"snap","ticks":{...}}    on subscribe, from cache
  *             {"type":"tick","tick":{...}}     on every update
  *             {"type":"status","up":true}      upstream connectivity
+ *
+ * Depth has no message type of its own: the five levels arrive as extra fields
+ * on the same ticks (see upstream.mjs for why).
  */
-export function createServer({ registry, upstream, ensureQuote, setControlMode }) {
+export function createServer({ registry, depthRegistry, upstream, ensureQuote, setControlMode }) {
   const clients = new Set();
   const statsClients = new Set();
   const connectionsPerIp = new Map();
+
+  /** Release a client's depth interest, and upstream's once nobody has any. */
+  const dropDepth = (ws, tokens) => {
+    for (const t of tokens) ws.depth.delete(t);
+    const dropped = depthRegistry.remove(ws, tokens);
+    if (dropped.length === 0) return;
+    upstream.unsubscribeDepth(dropped);
+    for (const t of dropped) registry.stripDepth(t);
+  };
 
   const snapshot = () => ({
     ...metrics.snapshot({
@@ -143,6 +162,7 @@ export function createServer({ registry, upstream, ensureQuote, setControlMode }
         upstream: upstream.connected,
         clients: clients.size,
         tokensWatched: registry.watchedCount,
+        depthWatched: depthRegistry.watchedCount,
       });
     }
 
@@ -255,6 +275,7 @@ export function createServer({ registry, upstream, ensureQuote, setControlMode }
 
   wss.on("connection", (ws) => {
     ws.tokens = new Set();
+    ws.depth = new Set();
     ws.isAlive = true;
     clients.add(ws);
     metrics.clientOpened();
@@ -287,6 +308,34 @@ export function createServer({ registry, upstream, ensureQuote, setControlMode }
         if (Object.keys(snap).length > 0) send(ws, { type: "snap", ticks: snap });
       }
 
+      // Depth rides on the tick stream, so asking for it subscribes the token's
+      // prices too. That keeps a depth watcher always a tick watcher - which is
+      // what lets `unsub` below release both at once, and means upstream never
+      // drops a token's touchline while its order book is still on screen.
+      if (Array.isArray(msg.depth)) {
+        const accepted = [];
+        for (const t of msg.depth.filter(isValidToken)) {
+          if (ws.depth.size >= MAX_DEPTH_PER_CLIENT) break;
+          if (ws.depth.has(t)) continue;
+          if (!ws.tokens.has(t) && ws.tokens.size >= config.maxTokensPerClient) break;
+          ws.tokens.add(t);
+          ws.depth.add(t);
+          accepted.push(t);
+        }
+
+        const freshTicks = registry.add(ws, accepted);
+        if (freshTicks.length > 0) upstream.subscribe(freshTicks);
+        const freshDepth = depthRegistry.add(ws, accepted);
+        if (freshDepth.length > 0) upstream.subscribeDepth(freshDepth);
+
+        const snap = registry.snapshot(accepted);
+        if (Object.keys(snap).length > 0) send(ws, { type: "snap", ticks: snap });
+      }
+
+      if (Array.isArray(msg.undepth)) {
+        dropDepth(ws, msg.undepth.filter((t) => ws.depth.has(t)));
+      }
+
       // The dashboard asks for stats instead of prices. It is counted as a
       // client like any other, because it is one.
       if (msg.stats === true) {
@@ -301,6 +350,7 @@ export function createServer({ registry, upstream, ensureQuote, setControlMode }
 
       if (Array.isArray(msg.unsub)) {
         const tokens = msg.unsub.filter(isValidToken);
+        dropDepth(ws, tokens.filter((t) => ws.depth.has(t)));
         for (const t of tokens) ws.tokens.delete(t);
         const dropped = registry.remove(ws, tokens);
         if (dropped.length > 0) upstream.unsubscribe(dropped);
@@ -311,6 +361,7 @@ export function createServer({ registry, upstream, ensureQuote, setControlMode }
       clients.delete(ws);
       statsClients.delete(ws);
       metrics.clientClosed();
+      dropDepth(ws, [...ws.depth]);
       const dropped = registry.remove(ws, [...ws.tokens]);
       if (dropped.length > 0) upstream.unsubscribe(dropped);
       const left = (connectionsPerIp.get(ws.ip) || 1) - 1;

@@ -10,6 +10,8 @@ const QUOTE_PIN_MS = 60_000;
 const QUOTE_WAIT_MS = 2_000;
 
 const registry = new Registry();
+/** Who wants market depth. Only its watcher bookkeeping is used; depth data is merged into `registry`. */
+const depthRegistry = new Registry();
 const upstream = new NorenUpstream();
 
 /**
@@ -53,7 +55,7 @@ async function ensureQuote(tokens) {
   return registry.snapshot(tokens);
 }
 
-const server = createServer({ registry, upstream, ensureQuote, setControlMode });
+const server = createServer({ registry, depthRegistry, upstream, ensureQuote, setControlMode });
 
 upstream.on("tick", (token, packet) => {
   const merged = registry.merge(token, packet);

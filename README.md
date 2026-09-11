@@ -29,8 +29,10 @@ code instead of a vendor SDK, and the upstream can be replaced without touching
 a page.
 
 ```
-client -> {"sub":   ["NSE|3045","NSE|26000"]}
-client -> {"unsub": ["NSE|3045"]}
+client -> {"sub":     ["NSE|3045","NSE|26000"]}
+client -> {"unsub":   ["NSE|3045"]}
+client -> {"depth":   ["NSE|3045"]}    five-level market depth, max 5 per client
+client -> {"undepth": ["NSE|3045"]}
 
 server -> {"type":"snap","ticks":{"NSE|3045":{...}}}   immediately on subscribe
 server -> {"type":"tick","tick":{...}}                 on every update
@@ -40,6 +42,14 @@ server -> {"type":"status","up":true}                  upstream connectivity
 Tick fields come from Noren: `lp` last price, `pc` percent change, `c` previous
 close, `o/h/l/v`, `ap` average price, `bp1/sp1/bq1/sq1` best bid/ask, `ts` the
 instrument name, `k` the `EXCHANGE|TOKEN` key.
+
+Depth has no message type of its own. Noren's depth packets (`dk`/`df`) are a
+superset of touchline, so the hub merges them into the same record and a depth
+subscriber simply receives richer ticks: `bp1-5/sp1-5` bid and ask prices,
+`bq1-5/sq1-5` quantities, `bo1-5/so1-5` order counts, `tbq/tsq` total bid and
+ask quantity, `52h/52l` the 52-week range, `uc/lc` the circuit limits, and
+`ltq/ltt` the last trade. `depth` implies `sub` for the same token, and `unsub`
+releases both.
 
 Two details worth knowing:
 
